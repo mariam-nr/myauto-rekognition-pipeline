@@ -1,0 +1,85 @@
+# serverless.yml
+#
+# deploys: S3 bucket (with trigger), Lambda function, DynamoDB table.
+# the bucket triggers the lambda on every new image upload, lambda calls
+# rekognition and writes the results into rekogintionAnalysesDB.
+#
+# deploy with:
+#   npm install -g serverless
+#   pip install -r requirements.txt -t lambda/  (or use serverless-python-requirements plugin)
+#   serverless deploy
+#
+# IMPORTANT: bucket names are globally unique in S3. change `bucketName` below
+# (or pass --param) before deploying, or AWS will reject it if someone else
+# already has that name.
+
+service: myauto-rekognition-pipeline
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: us-east-1
+  stage: dev
+  environment:
+    DYNAMO_DB_TABLE: rekogintionAnalysesDB
+  iam:
+    role:
+      statements:
+        # rekognition needs read access to the bucket the image lives in
+        - Effect: Allow
+          Action:
+            - rekognition:DetectLabels
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+          Resource:
+            - !GetAtt RekognitionAnalysesTable.Arn
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+          Resource:
+            - "arn:aws:s3:::${self:custom.bucketName}/*"
+
+custom:
+  # change this to something globally unique before deploying
+  bucketName: myauto-images-${self:provider.stage}-${aws:accountId}
+
+functions:
+  processMedia:
+    handler: lambda/handler.start_processing_media
+    timeout: 30
+    memorySize: 256
+    events:
+      - s3:
+          bucket: ${self:custom.bucketName}
+          event: s3:ObjectCreated:*
+          existing: false
+          # not filtering by suffix here on purpose: S3 only allows one
+          # prefix/suffix filter per event type per bucket via CloudFormation,
+          # so trying to register .jpg/.jpeg/.png as three separate triggers
+          # on the same bucket+event conflicts. the lambda handler itself
+          # already checks the file extension and skips anything that isn't
+          # jpg/jpeg/png, so filtering happens there instead.
+
+resources:
+  Resources:
+    RekognitionAnalysesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: rekogintionAnalysesDB
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+
+  Outputs:
+    BucketName:
+      Value: ${self:custom.bucketName}
+    DynamoDBTableName:
+      Value: !Ref RekognitionAnalysesTable

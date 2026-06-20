@@ -1,0 +1,23 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# downloaded scraper output - don't want hundreds of jpgs in the repo
+downloaded_images/
+*.zip
+
+# serverless framework
+.serverless/
+node_modules/
+
+# local env / secrets
+.env
+*.pem
+
+# editor/OS junk
+.DS_Store
+.vscode/
+.idea/
